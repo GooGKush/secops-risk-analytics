@@ -1,0 +1,22 @@
+# SecOps Risk Analytics Skills Package
+
+A collection of Agent Skills and deep references for Google Security Operations (SecOps/Chronicle) SIEM —
+focusing strictly on mathematical behavioral baselining, risk scoring, and anomalous telemetry detections.
+
+## Core Skills
+
+- [SecOps Risk Analytics](SKILL.md): Main orchestrator skill guiding the end-to-end creation of pre-computed metrics rules, standard deviation thresholds, and entity risk score joins.
+
+## Reference Files
+
+- [Metrics Dimensions Map](references/metrics-dimensions.md): Strict reference listing all Mathematically valid pre-computed dimension combinations (Auth attempts, DNS, Bytes Outbound, File executions).
+- [Metrics named parameters](references/metrics-functions.md): Reference for period/window boundaries, inline metrics filters syntax, and first-seen hybrid logic structures.
+- [UEBA Categories & Data Ingestion](references/risk-analytics-ueba.md): Detailed map of UEBA security rule categories, standard Windows Event ID logs mapping, and multi-event split-table ECG risk score joins.
+- [UEBA Anti-Patterns Guide](references/ueba-anti-patterns.md): Technical walkthrough on preventing Outcome Mismatch traps via MATCH-based parameter fixing and establishing baseline predictability thresholds.
+- [UDM Stats Search with Metrics](references/metrics-stats-search.md): Complete syntax reference and rules for executing ad-hoc UDM Stats Search queries with metrics, including the mandatory 24-hour query window.
+- [Production Baselining Models](references/metrics-baselining.md): Deep mathematical modeling guide comparing Standard Deviation thresholds vs. Stability Baselining using the Coefficient of Variation (CV).
+- [Production Best Practices](references/production-best-practices.md): Insights derived from Uppercase managed UEBA rules, including Baseline Floors, multi-namespace dimension filters, and standardized outcome array formatting.
+
+## Rule Examples & Templates
+
+- [Standard Deviation Telemetry Rule](examples/anomalous_outbound_bytes.yara): Fully-commented template demonstrating an outbound network bytes standard deviation threshold rule.
