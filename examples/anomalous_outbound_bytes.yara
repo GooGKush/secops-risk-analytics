@@ -11,14 +11,14 @@ rule AnomalousOutboundBytesZScore {
     $ip = $e.principal.asset.ip
 
   match:
-    // Step 2: Group by the placeholder over a 1-day tumbling window
-    $ip by 1d tumbling
+    // Step 2: Group by the entity placeholder over a 24-hour window
+    $ip over 24h
 
   outcome:
     // Step 3: Calculate current actual value
     $actual_bytes_out = sum($e.network.sent_bytes)
 
-    // Step 4: Query pre-computed metrics baseline (Must wrap in outermost aggregator max())
+    // Step 4: Query pre-computed metrics baseline (wrapped in outermost aggregator max())
     $avg_bytes_out = max(metrics.network_bytes_outbound(
       period: 1d,
       window: 30d,
@@ -35,10 +35,13 @@ rule AnomalousOutboundBytesZScore {
       principal.asset.ip: $ip
     ))
 
-    // Step 5: Track metrics for visibility in detection details
-    $deviation_threshold = $avg_bytes_out + (3 * $stddev_bytes_out)
+    // Step 5: Linear AST Outcome Calculations (No parentheses in math, no nested aggregators)
+    $diff = $actual_bytes_out - $avg_bytes_out
+    $z_score = $diff / $stddev_bytes_out
 
   condition:
-    // Step 6: Fire condition based on calculated anomaly outcomes
-    $actual_bytes_out > $deviation_threshold
+    // Step 6: Fire condition with zero-division guardrail and Z-Score threshold (Z >= 3)
+    $e and 
+    $stddev_bytes_out > 0 and 
+    $z_score >= 3
 }

@@ -24,7 +24,7 @@ The allowed values for the `window` lookback are strictly bounded by the metric'
 
 *   **Daily metrics:** `period: 1d` $\rightarrow$ **Window must be:** `window: 30d`
 *   **Hourly metrics:** `period: 1h` $\rightarrow$ **Window must be:** `window: today`
-    *   *Rule:* Hourly metrics can **only** be used in rules that also join at least one daily metric.
+    *   *Mandatory Dual-Anchor Rule:* Hourly metrics (`period: 1h, window: today`) **can only be used in queries that also bind at least one daily metric (`period: 1d, window: 30d`)** for that entity. Omitting the daily metric causes the compiler error: `Hourly UEBA metrics can only be used alongside daily UEBA metrics`.
 
 ### B. Metric Types (`metric` parameter)
 This determines which raw pre-computed behavioral field is extracted from the baseline window:

@@ -12,17 +12,21 @@ This repository is structured to conform strictly with the [Agent Skills Specifi
 
 ```
 secops-risk-analytics/
-├── SKILL.md                # Core orchestrator prompt containing metadata and check-lists
+├── SKILL.md                # Core orchestrator prompt containing metadata and checklists
 ├── LICENSE                 # Apache 2.0 License
 ├── scripts/                # Local executable linting scripts
 │   └── validate_metrics_yara.py  # A local python linter that enforces YARA-L metric parameters
 ├── references/             # In-depth domain documentation pulled on-demand by agents
+│   ├── metrics-baselining.md  # Standard Z-Score, CV, Fano Factor, and Linear AST math rules
 │   ├── metrics-dimensions.md  # Strict pre-computed dimensions mapping sheet
 │   ├── metrics-functions.md   # Syntax, Named Parameters, and First-Seen hybrid logic rules
-│   ├── risk-analytics-ueba.md # Category log source maps and separate ESG event join guidelines
-│   └── ueba-anti-patterns.md  # outcome mismatches and predictability evaluations
+│   ├── metrics-stats-search.md# Ad-hoc UDM stats search with metrics conventions
+│   ├── production-best-practices.md # Baseline floors, multi-namespace rigor, action mapping
+│   ├── risk-analytics-ueba.md # Category log source maps and separate ECG event join guidelines
+│   └── ueba-anti-patterns.md  # Parameter mismatch, scope alignment, and baseline skew prevention
 └── examples/               # Standardized working template rules
-    └── anomalous_outbound_bytes.yara  # Outbound bytes standard deviation threshold template
+    ├── anomalous_outbound_bytes.yara  # Outbound bytes Z-Score baseline rule template
+    └── risk_auth_zscore_surge.yara    # Authentication surge Z-Score baseline rule template
 ```
 
 ---
@@ -43,12 +47,13 @@ Once installed, you can trigger the assistant to query these capabilities by cal
 
 ---
 
-## Running the Linter locally
+## Rule Validation & Linting
 
-You can run the YARA-L metrics validator locally on your rules:
-```bash
-python3 scripts/validate_metrics_yara.py path/to/your/rule.yara
-```
+* **Default (Detection Rules)**: Validated against the live Google SecOps compiler (`validate_rule` tool).
+* **SIEM Search (Stats Searches)**: When authoring ad-hoc UDM stats searches, run the local Python linter:
+  ```bash
+  python3 scripts/validate_metrics_yara.py path/to/your/rule.yara
+  ```
 
 ---
 

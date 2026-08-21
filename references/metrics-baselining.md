@@ -1,46 +1,69 @@
-# Mathematical Baselining & Modeling (Standard Deviation vs Coefficient of Variation)
+# Mathematical Baselining & Modeling (Standard Deviation vs Advanced Models)
 
 To write a successful behavioral anomaly rule in Google SecOps, you must mathematically define "normal" so you can precisely alert on "abnormal" behavior.
 
-This guide outlines the two primary methods of behavioral modeling in YARA-L 2.0, including the advanced **Coefficient of Variation (CV)** method.
+This guide outlines the core statistical models in YARA-L 2.0 (Standard Z-Score, Coefficient of Variation, Poisson Rarity, and Fano Factor) and enforces **Linear AST outcome syntax**.
 
 ---
 
-## Method A: Standard Deviation Threshold (Simple Volatility)
-Ideal for **high-frequency, low-volatility events** where the baseline has a consistent average and tight deviation.
+## ⚠️ Malachite AST Compiler Math Rules (Mandatory)
 
-### Mathematical Threshold:
-$$\text{Threshold} = \text{Average} + (3 \times \text{Standard Deviation})$$
+The SecOps Malachite YARA-L engine enforces strict AST syntax for mathematical assignments in `outcome:`:
+
+1. **No Nested Aggregators / Math**: Expressions like `max(metric1 / metric2)` or `max(metric1 + 2 * metric2)` are **illegal** and rejected by the AST parser.
+2. **Linear Variable Assignments Only**: Each operation must be split into separate linear intermediate variables:
+   ```yara
+   // ❌ ILLEGAL (Fails compilation)
+   $threshold = max(metrics.auth_attempts_fail(... agg: avg)) + (3 * max(metrics.auth_attempts_fail(... agg: stddev)))
+
+   // ✓ CORRECT (Linear AST)
+   $historical_avg = max(metrics.auth_attempts_fail(... agg: avg))
+   $historical_stddev = max(metrics.auth_attempts_fail(... agg: stddev))
+   $scaled_stddev = 3 * $historical_stddev
+   $threshold = $historical_avg + $scaled_stddev
+   ```
+3. **No Parentheses `()` in Arithmetic**: Expressions like `$z = ($observed - $mu) / $sigma` fail parsing. You must compute the difference first, then divide:
+   ```yara
+   $diff = $observed_val - $historical_avg
+   $z_score = $diff / $historical_stddev
+   ```
+4. **No Bare `if()` in Outcome Arithmetic**: Use `$historical_stddev > 0` guardrails inside the `condition:` block rather than ternary inline `if()` logic in `outcome:`.
+
+---
+
+## Model 1: Standard Z-Score ($Z > 3.0$)
+Ideal for **high-frequency, symmetric baseline metrics** (e.g., authentication surges, HTTP query volume).
+
+### Mathematical Formula:
+$$Z = \frac{x - \mu}{\sigma}$$
+Where $x$ is the current observed activity, $\mu$ is the 30-day historical mean, and $\sigma$ is the historical standard deviation.
 
 ### YARA-L Implementation:
 ```yara
 outcome:
-  $avg_bytes = max(metrics.network_bytes_outbound(period:1d, window:30d, metric:value_sum, agg:avg, principal.asset.ip: $ip))
-  $std_bytes = max(metrics.network_bytes_outbound(period:1d, window:30d, metric:value_sum, agg:stddev, principal.asset.ip: $ip))
-  $threshold = $avg_bytes + (3 * $std_bytes)
+  $actual_bytes = sum($e.network.sent_bytes)
+  $historical_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.ip: $ip))
+  $historical_stddev = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.ip: $ip))
+  
+  // Linear AST outcome arithmetic
+  $diff = $actual_bytes - $historical_avg
+  $z_score = $diff / $historical_stddev
 
 condition:
-  $actual_bytes > $threshold
+  $e and $historical_stddev > 0 and $z_score >= 3
 ```
 
 ---
 
-## Method B: Coefficient of Variation (CV) & Stability Modeling (Advanced)
-Ideal for **detecting anomalies in highly stable environments**. Standard deviation alone can be misleading if the baseline changes. We use the **Coefficient of Variation (CV)** to model stability first, ensuring we only alert on entities with a highly predictable baseline.
+## Model 2: Coefficient of Variation (CV) & Stability Modeling
+Ideal for **detecting anomalies in highly stable environments**. Standard deviation alone can be misleading if the baseline has high natural variance. We use the **Coefficient of Variation (CV)** to measure stability first ($\text{CV} = \sigma / \mu$).
 
-### Mathematical Formulas:
-*   **Coefficient of Variation (CV):** Measures relative variability. It is the ratio of the standard deviation to the mean:
-    $$\text{CV} = \frac{\sigma}{\mu} = \frac{\text{Standard Deviation}}{\text{Average}}$$
-*   **Low CV ($< 0.1$):** Represents extreme baseline stability.
-*   **Observations Threshold:** Establishes confidence by verifying the entity has been active for at least $X$ out of the last $30$ days.
-*   **Anomalous Threshold:** Flags activity that is an extreme multiple of the historical maximum (e.g., $10 \times \text{historical max}$).
+### Mathematical Concept:
+* **$\text{CV} < 0.10$**: Extreme baseline stability (robotic or consistent scheduled activity).
+* **Confidence Floor**: Entity observed active for at least $X$ days out of 30 (`agg: num_metric_periods`).
+* **Multiplier Threshold**: Alerts when activity exceeds $10 \times \text{historical maximum}$ on an otherwise ultra-stable entity.
 
----
-
-## Production Template: Stability Modeling (CV Method)
-
-Observe how this pattern uses outcome thresholds to build a highly resilient, false-positive-free composite rule:
-
+### Production Rule Template:
 ```yara
 rule UEBA_StableEntity_AnomalyDetection {
   meta:
@@ -55,7 +78,7 @@ rule UEBA_StableEntity_AnomalyDetection {
     $ns = $e.target.namespace
 
   match:
-    // Dynamic dimensions are fixed in the match block to prevent outcome mismatch
+    // Dynamic dimensions are fixed in match block to prevent outcome mismatch
     $user, $app, $ns over 24h
 
   outcome:
@@ -82,31 +105,53 @@ rule UEBA_StableEntity_AnomalyDetection {
       target.user.userid: $user, target.application: $app, target.namespace: $ns
     ))
 
-    // 2. Calculate Relative Variability (CV)
-    // Division is performed inline between two metric queries
-    $historical_cv = max(
-      metrics.auth_attempts_fail(
-        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        target.user.userid: $user, target.application: $app, target.namespace: $ns
-      ) /
-      metrics.auth_attempts_fail(
-        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        target.user.userid: $user, target.application: $app, target.namespace: $ns
-      )
-    )
-
-    // 3. Define Fixed Threshold Outcomes
-    $observation_confidence_threshold = max(9)   // Active at least 9 of the last 30 days
-    $stability_cv_threshold = max(0.1)           // CV < 0.1 models extreme stability
-    $anomaly_multiplier_threshold = max(10 * $historical_max) // 10x historical maximum
+    // 2. Linear AST Outcome Calculations
+    $historical_cv = $historical_stddev / $historical_avg
+    $anomaly_threshold = 10 * $historical_max
 
   condition:
     $e and 
-    // Rule 1: Trigger event count exceeds the historical multiplier threshold (10x max)
-    ($actual_failed_logins > $anomaly_multiplier_threshold) and 
-    // Rule 2: The entity's history models a highly stable baseline (low coefficient of variation)
-    ($historical_cv < $stability_cv_threshold) and 
-    // Rule 3: High confidence baseline (observed active for at least 9 days)
-    ($historical_observations >= $observation_confidence_threshold)
+    // Guardrail: baseline exists and non-zero
+    $historical_avg > 0 and
+    // Condition 1: Actual count exceeds 10x historical max
+    $actual_failed_logins > $anomaly_threshold and 
+    // Condition 2: Historical baseline is highly stable (CV < 0.10)
+    $historical_cv < 0.10 and 
+    // Condition 3: High confidence baseline (active at least 9 of 30 days)
+    $historical_observations >= 9
 }
 ```
+
+---
+
+## Model 3: Poisson Dispersion & Fano Factor ($F > 4.0$)
+Ideal for **detecting bursty attack clustering** (e.g. automated password sprays vs. regular human mistyped passwords).
+
+### Mathematical Formula:
+$$F = \frac{\sigma^2}{\mu}$$
+* $F \approx 1.0$: Steady, random human errors (Poisson distribution).
+* $F > 4.0$: Super-Poisson burst clustering (automated attack waves).
+
+### YARA-L Implementation:
+```yara
+outcome:
+  $actual_attempts = count($e.metadata.id)
+  $historical_avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: $user))
+  $historical_stddev = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: $user))
+
+  // Linear AST variance & Fano factor
+  $variance = $historical_stddev * $historical_stddev
+  $fano_factor = $variance / $historical_avg
+
+condition:
+  $e and $historical_avg > 0 and $actual_attempts >= 20 and $fano_factor >= 4.0
+```
+
+---
+
+## Model 4: Discrete Poisson Rarity ($Z_P > 3.5$)
+Ideal for **rare, low-frequency event anomalies** ($\lambda \le 2.0$, such as anomalous admin execution or rare privilege escalations).
+
+### Mathematical Formula:
+$$Z_P = \frac{k - \lambda}{\sqrt{\lambda}}$$
+Where $k$ is the observed count and $\lambda$ is the expected 30-day daily historical average arrival rate.

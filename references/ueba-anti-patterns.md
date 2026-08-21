@@ -86,3 +86,19 @@ outcome:
 *   **Anti-Pattern:** Using a broad metric category to detect a highly specific anomaly (e.g., using `metrics.resource_creation_total` to flag anomalous AWS EC2 instance creations).
 *   **Why it fails:** Because the baseline counts *all* resources created (GCP VMs, Azure keys, AWS storage, IAM accounts), a massive spike in EC2 instances will get diluted inside the total count and will likely never cross the anomaly threshold.
 *   **The Rule:** Baseline metrics must match the specificity of the events they aim to monitor. Choose specific metrics functions (or filter dimensions) rather than broad aggregators.
+
+---
+
+## 4. Subset-to-Whole Baseline Skew (Part-to-Whole Distortion)
+
+### The Issue:
+Pre-computed risk metrics (such as `metrics.network_bytes_outbound`, `metrics.http_queries_total`, or `metrics.auth_attempts_total`) aggregate historical telemetry across **all ingesting log sources** within the tenant.
+
+If your rule's `events:` block restricts telemetry to a specific subset, log type, or vendor (e.g., `metadata.log_type = "CHROME_MANAGEMENT"` or `metadata.vendor_name = "Palo Alto"`), you introduce an asymmetrical **Part-to-Whole baseline skew**:
+* The real-time numerator reflects only Chrome or Palo Alto logs.
+* The historical 30-day baseline denominator reflects the tenant-wide total across all log types and vendors.
+* **Result**: The real-time observation will almost never exceed historical averages/thresholds, causing silent false negatives and distorted Z-scores.
+
+### The Two-Tier Telemetry Audit:
+1. **Tier 1 (Compatibility Check)**: Verify that the UDM event type in `events:` matches the metric's data foundation (e.g. `USER_LOGIN` with `metrics.auth_attempts_*`, `NETWORK_CONNECTION` with `metrics.network_bytes_*`).
+2. **Tier 2 (Baseline Scope Check)**: Ensure you do not over-filter the real-time event scope with specific vendor/log type constraints unless the metric itself was pre-computed against that isolated log type dimension.

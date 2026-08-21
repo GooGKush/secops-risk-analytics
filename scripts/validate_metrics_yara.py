@@ -22,7 +22,7 @@ def validate_rule(filepath):
     events_match = re.search(r'\bevents:\s*(.*?)\b(match:|outcome:|condition:|$)', content, re.DOTALL)
     match_match = re.search(r'\bmatch:\s*(.*?)\b(outcome:|condition:|$)', content, re.DOTALL)
     outcome_match = re.search(r'\boutcome:\s*(.*?)\b(condition:|options:|$)', content, re.DOTALL)
-    condition_match = re.search(r'\bcondition:\s*(.*?)\b(options:|$)', content, re.DOTALL)
+    condition_match = re.search(r'\bcondition:\s*(.*?)(?=\boptions:|\Z)', content, re.DOTALL)
 
     events_block = events_match.group(1) if events_match else ""
     match_block = match_match.group(1) if match_match else ""
@@ -93,7 +93,52 @@ def validate_rule(filepath):
                     f"or fix its value in the 'events:' section (e.g., {var} = \"US\")."
                 )
 
-    # 4. Target Risk Score Constraints
+    # 4. Hourly Dual-Anchor Validation
+    has_hourly = any(p.get('period') == '1h' for _, _, p in [(w, f, {k: v.strip() for k, v in re.findall(r'(\b\w+(?:\.\w+)*\b)\s*:\s*([^\s,]+)', ps)}) for w, f, ps in metrics_patterns])
+    has_daily = any(p.get('period') == '1d' for _, _, p in [(w, f, {k: v.strip() for k, v in re.findall(r'(\b\w+(?:\.\w+)*\b)\s*:\s*([^\s,]+)', ps)}) for w, f, ps in metrics_patterns])
+    if has_hourly and not has_daily:
+        errors.append(
+            "CRITICAL ERROR: Hourly metrics (period:1h, window:today) can only be used alongside daily "
+            "metrics (period:1d, window:30d) in the same rule. Omitting daily metrics causes a compiler error."
+        )
+
+    # 5. Linear AST Math Checks
+    for line in outcome_block.splitlines():
+        line_clean = re.sub(r'//.*$', '', line).strip()
+        if not line_clean or not line_clean.startswith('$'):
+            continue
+        # Check for nested arithmetic inside max/min/avg/sum
+        if re.search(r'\b(max|min|avg|sum)\s*\(\s*metrics\.\w+\([^)]+\)\s*[\+\-\*/]', line_clean):
+            errors.append(
+                f"MALACHITE AST ERROR: Nested math detected in outcome aggregator: '{line_clean}'. "
+                f"Extract metrics into separate outcome variables first, then perform linear arithmetic."
+            )
+        # Check for parentheses in arithmetic expressions (excluding function calls)
+        if re.search(r'=\s*[^;]*\(\s*\$\w+\s*[\+\-\*/]', line_clean):
+            errors.append(
+                f"MALACHITE AST ERROR: Parentheses in outcome arithmetic are forbidden: '{line_clean}'. "
+                f"Break complex calculations into linear intermediate assignments (e.g. $diff = $a - $b; $z = $diff / $c)."
+            )
+
+    # 6. Condition Float Literal Check (Malachite tokenizer accepts only integers in condition)
+    float_matches = re.findall(r'\b\d+\.\d+\b', condition_block)
+    if float_matches:
+        errors.append(
+            f"MALACHITE TOKENIZER ERROR: Float literals {float_matches} detected in 'condition:'. "
+            f"The YARA-L condition section only accepts integer literals (e.g. use '$z_score >= 3' instead of '3.0')."
+        )
+
+    # 7. Unescaped Multiline String Literal Check
+    for i, line in enumerate(content.splitlines(), start=1):
+        # Count non-escaped double quotes on the line
+        quotes = len(re.findall(r'(?<!\\)"', line))
+        if quotes % 2 != 0:
+            errors.append(
+                f"TOKENIZER ERROR (Line {i}): Mismatched or multiline string literal detected: '{line.strip()}'. "
+                f"All string literals in YARA-L must start and end on the same line."
+            )
+
+    # 8. Target Risk Score Constraints
     if "graph.risk_score" in content:
         # Must filter by window size
         if "graph.risk_score.risk_window_size.seconds" not in content:
