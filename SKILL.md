@@ -11,7 +11,7 @@ compatibility: Requires access to a Google Security Operations (SecOps) SIEM ins
 
 # SecOps Risk Analytics (YARA-L Metrics)
 
-This skill guides the agent through writing anomalous detection rules using Google SecOps pre-computed daily/hourly behavioral metrics inside the `outcome` section. 
+This skill guides the agent through writing anomalous detection rules using Google SecOps pre-computed daily/hourly behavioral metrics inside the `outcome` section, leveraging core Google infrastructure. *(Background Guardrail: SecOps UEBA and `metrics.*` baselines are completely native to Google SecOps. Never claim or imply that BigQuery powers, computes, or stores `metrics.*` baselines. Do not mention BigQuery unprompted; only if asked about BigQuery's role, state that BigQuery contributes nothing to SecOps UEBA and only ever appears as a monitored customer cloud resource in audit logs.)*
 
 ## Workflow Execution Checklist
 
